@@ -1,0 +1,122 @@
+---
+title: "Multiple Choice Survey Data Clean"
+output: html_document
+date: '2022-05-04'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(readxl)
+library(writexl)
+```
+
+# Qualtrics
+
+When downloading there are two choice:
+
+> Numeric responses or choice text
+> 
+> - Use numeric values
+> 
+> - Use choice text
+
+## Original raw data
+
+This survey had 134 responses (more than any other!) so we're going to process this dataset and re-export into the other formats.
+
+
+```{r}
+qualtrics_raw <- read_excel("data-raw/qualtrics_original_choice-text.xlsx") %>% 
+  clean_names()
+```
+
+The first row of the data provides the question labels used in the original survey. We can make use of this as follows:
+
+```{r}
+qualtrics_column_labels <- qualtrics_raw %>% 
+  slice(1) %>% 
+  pivot_longer(everything(),
+               names_to = "column_name",
+               values_to = "column_label")
+```
+
+Let's remove this and continue with our analysis
+
+```{r}
+qualtrics_survey_data <- qualtrics_raw %>% 
+  slice(-1) %>% 
+  select(start_date, starts_with("q"))
+```
+
+
+We can separate all the observations with separate_rows()
+
+```{r}
+qualtrics_long <- qualtrics_survey_data %>% 
+  separate_rows(q2, sep = ",")
+```
+
+But we need to decide what to do about the write in option. The approach I'd use would be as follows.
+
+```{r}
+qualtrics_tidy <- qualtrics_long %>% 
+  mutate(q2 = ifelse(q2 == "Other (WHAT'S YOUR HOBBY?)", q2_7_text, q2)) %>% 
+  select(-q2_7_text)
+```
+
+## Export for Google Drive
+
+```{r}
+export_partial_google_forms <- qualtrics_survey_data %>% 
+  mutate(q2 = str_replace_all(q2, ",", ", ")) %>% 
+  mutate(google_form_format = str_replace(q2, "Other [(]WHAT'S YOUR HOBBY\\?[)]", q2_7_text)) %>% 
+  mutate(row_id = row_number()) %>% 
+  select(row_id, google_form_format)
+```
+
+```{r}
+read_excel("data-raw/qualtrics_original_choice-text.xlsx", skip = 1) %>% 
+  clean_names() %>% 
+  select(start_date) %>% 
+  mutate(start_date = as.character(start_date)) %>% 
+  bind_cols(export_partial_google_forms) %>% 
+  select(start_date, google_form_format) %>% 
+  rename("Select all the things you've done in the past 24hours." = google_form_format,
+         Timestamp = start_date) %>% 
+  write_xlsx("data/google-forms-data.xlsx")
+```
+
+## Export for Survey Monkey
+
+```{r}
+export_partial_survey_monkey <- qualtrics_long %>% 
+  mutate(q2_again = q2) %>% 
+  pivot_wider(values_from = q2,
+              names_from = q2_again) %>% 
+  relocate(q2_7_text, .after = last_col()) %>% 
+  clean_names() %>% 
+  select(-other_whats_your_hobby, -start_date) %>% 
+  mutate(across(slept:relaxed_with_a_hobby_tell_us_the_hobby_by_typing_in_the_other_field, ~paste0("- ", .x)),
+         across(slept:relaxed_with_a_hobby_tell_us_the_hobby_by_typing_in_the_other_field, ~na_if(.x, "- NA"))) %>% 
+  mutate(across(everything(), ~replace_na(.x, "")))
+```
+
+```{r}
+read_excel("data-raw/qualtrics_original_choice-text.xlsx", skip = 1) %>% 
+  clean_names() %>% 
+  select(start_date) %>% 
+  mutate(start_date = as.character(start_date)) %>% 
+  bind_cols(export_partial_survey_monkey) %>% 
+  write_xlsx("data-raw/survey-monkey_exported.xlsx")
+```
+
+
+
+
+
+
+
+
+

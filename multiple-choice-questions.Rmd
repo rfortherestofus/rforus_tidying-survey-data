@@ -1,0 +1,150 @@
+---
+title: "Multiple Choice Survey Data Clean"
+output: html_document
+date: '2022-05-04'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(readxl)
+```
+
+# Qualtrics
+
+When downloading there are two choice:
+
+> Numeric responses or choice text
+> 
+> - Use numeric values
+> 
+> - Use choice text
+
+```{r}
+qualtrics_raw <- read_excel("data/qualtrics-data.xls") %>% 
+  clean_names()
+```
+
+The first row of the data provides the question labels used in the original survey. We can make use of this as follows:
+
+```{r}
+qualtrics_column_labels <- qualtrics_raw %>% 
+  slice(1) %>% 
+  pivot_longer(everything(),
+               names_to = "column_name",
+               values_to = "column_label")
+```
+
+Let's remove this and continue with our analysis
+
+```{r}
+qualtrics_survey_data <- qualtrics_raw %>% 
+  slice(-1) %>% 
+  select(start_date, starts_with("q"))
+```
+
+We can separate all the observations with separate_rows()
+
+```{r}
+qualtrics_long <- qualtrics_survey_data %>% 
+  separate_rows(q2, sep = ",")
+```
+
+There's an argument for brining the q2_7_text column into q2 but that can make data visualisations harder.
+
+```{r}
+qualtrics_long %>% 
+  count(q2) %>% 
+  mutate(q2 = fct_reorder(q2, n)) %>% 
+  ggplot(aes(x = n,
+             y = q2)) +
+  geom_col()
+```
+
+# Survey Monkey
+
+The export format is very messy.
+
+```{r}
+survey_monkey_raw <- read_excel("data/survey-monkey-data.xlsx") %>% 
+  clean_names()
+```
+
+The first row gives us each of the options, which need to be dropped. This format doesn't provide a count for "Other" responses, which we're going to insert as follows and then make long
+
+```{r}
+survey_monkey_tidy <- survey_monkey_raw %>% 
+  slice(-1) %>% 
+  mutate(other_supplied = ifelse(is.na(x8), NA, "Other (WHAT'S YOUR HOBBY?)")) %>% 
+  pivot_longer(cols = -c(start_date, x8)) %>% 
+  mutate(value = str_remove(value, "- ")) %>% 
+  select(start_date, value, x8) %>% 
+  filter(!is.na(value))
+```
+
+
+```{r}
+survey_monkey_tidy %>% 
+  filter(!is.na(value)) %>% 
+  count(value) %>% 
+  mutate(value = fct_reorder(value, n)) %>% 
+  ggplot(aes(x = n,
+             y = value)) +
+  geom_col()
+```
+
+# Google Forms
+
+The Google Forms format is probably the simplest format.
+
+However it has the complexity of not recording the free-form text as an option. Instead all responses are separated with commas. This could issues if the free form text contains commas!
+
+```{r}
+google_forms_raw <- read_excel("data/google-forms-data.xlsx") %>% 
+  clean_names()
+```
+
+
+```{r}
+google_forms_long <- google_forms_raw %>% 
+  separate_rows(select_all_the_things_youve_done_in_the_past_24hours,
+                sep = ", ")
+```
+
+We need to manually specify the explicit options given in the survey:
+
+```{r}
+survey_question_options <- c("Slept", "Eaten food", "Cooked food", "Gone to work", "Commuted for work", 
+"Relaxed with a hobby (TELL US THE HOBBY BY TYPING IN THE OTHER FIELD)", 
+"Other (WHAT'S YOUR HOBBY?)")
+```
+
+```{r}
+google_forms_tidy <- google_forms_long %>% 
+  mutate(response_label = ifelse(select_all_the_things_youve_done_in_the_past_24hours %in% survey_question_options,
+                                 select_all_the_things_youve_done_in_the_past_24hours,
+                                 "Other (WHAT'S YOUR HOBBY?)"))
+```
+
+```{r}
+google_forms_tidy %>% 
+  filter(!is.na(response_label)) %>% 
+  count(response_label) %>% 
+  mutate(response_label = fct_reorder(response_label, n)) %>% 
+  ggplot(aes(x = n,
+             y = response_label)) +
+  geom_col()
+```
+
+
+
+
+
+
+
+
+
+
+
+
